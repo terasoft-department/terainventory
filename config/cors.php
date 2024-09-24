@@ -19,7 +19,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['http://localhost:5173','https://7tbf3bgr-5173.uks1.devtunnels.ms'],
+    'allowed_origins' => ['*'],
 
     'allowed_origins_patterns' => [],
 
