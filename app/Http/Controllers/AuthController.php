@@ -17,12 +17,14 @@ class AuthController extends Controller
         $this->middleware('auth:sanctum')->except(['register', 'login']);
     }
 
+    // Register new user
     public function register(Request $request)
     {
         $validatedData = $request->validate([
             'name' => 'required|string|max:255',
             'role_id' => 'required|integer',
             'status' => 'required|string|max:255',
+            'location' => 'required|string|max:255', // Location added here
             'email' => 'required|string|email|max:255',
             'password' => 'required|string|min:8',
         ]);
@@ -41,46 +43,46 @@ class AuthController extends Controller
         }
     }
 
-public function login(Request $request)
-{
-    \Log::info('Login request data: ', $request->all());
+    // Login user
+    public function login(Request $request)
+    {
+        \Log::info('Login request data: ', $request->all());
 
-    $credentials = $request->validate([
-        'email' => 'required|string|email',
-        'password' => 'required|string|min:8',
-    ]);
+        $credentials = $request->validate([
+            'email' => 'required|string|email',
+            'password' => 'required|string|min:8',
+        ]);
 
-    $user = User::where('email', $credentials['email'])->first();
+        $user = User::where('email', $credentials['email'])->first();
 
-    if (!$user || !Hash::check($credentials['password'], $user->password)) {
-        \Log::info('Invalid credentials for email: ' . $credentials['email']);
-        return response()->json(['message' => 'Invalid credentials'], 401);
+        if (!$user || !Hash::check($credentials['password'], $user->password)) {
+            \Log::info('Invalid credentials for email: ' . $credentials['email']);
+            return response()->json(['message' => 'Invalid credentials'], 401);
+        }
+
+        if ($user->status !== 'is_active') {
+            \Log::info('Inactive account for email: ' . $credentials['email']);
+            return response()->json(['message' => 'Account is not active'], 403);
+        }
+
+        try {
+            $token = $user->createToken('authToken', [], Carbon::now()->addHours(8))->plainTextToken;
+            $cookie = cookie('auth_token', $token, 480);
+
+            \Log::info('Login successful for email: ' . $credentials['email']);
+
+            return response()->json([
+                'user' => $user,
+                'token' => $token,
+                'role_id' => $user->role_id
+            ], 200)->cookie($cookie);
+        } catch (\Exception $e) {
+            \Log::error('Error during login: ' . $e->getMessage());
+            return response()->json(['message' => 'An error occurred', 'error' => $e->getMessage()], 500);
+        }
     }
 
-    if ($user->status !== 'is_active') {
-        \Log::info('Inactive account for email: ' . $credentials['email']);
-        return response()->json(['message' => 'Account is not active'], 403);
-    }
-
-    try {
-        $token = $user->createToken('authToken', [], Carbon::now()->addHours(8))->plainTextToken;
-        $cookie = cookie('auth_token', $token, 480);
-
-        \Log::info('Login successful for email: ' . $credentials['email']);
-
-        return response()->json([
-            'user' => $user,
-            'token' => $token,
-            'role_id' => $user->role_id
-        ], 200)->cookie($cookie);
-    } catch (\Exception $e) {
-        \Log::error('Error during login: ' . $e->getMessage());
-        return response()->json(['message' => 'An error occurred', 'error' => $e->getMessage()], 500);
-    }
-}
-
-
-
+    // Logout user
     public function logout(Request $request)
     {
         $request->user()->tokens()->delete();
@@ -89,6 +91,7 @@ public function login(Request $request)
         return response()->json(['message' => 'Logged out successfully'])->cookie($cookie);
     }
 
+    // Get logged-in user profile
     public function getLoggedUserProfile(Request $request)
     {
         $user = $request->user();
@@ -99,9 +102,11 @@ public function login(Request $request)
             'name' => $user->name,
             'role_id' => $user->role_id,
             'status' => $user->status,
+            'location' => $user->location, // Include location in profile response
         ]);
     }
 
+    // Reset password for logged-in user
     public function resetPassword(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -125,6 +130,7 @@ public function login(Request $request)
         return response()->json(['message' => 'Password has been reset successfully.']);
     }
 
+    // Get logged-in user's email
     public function getLoggedUserName(Request $request)
     {
         $user = $request->user();
@@ -132,6 +138,7 @@ public function login(Request $request)
         return response()->json(['email' => $user->email]);
     }
 
+    // Get logged-in user's ID
     public function getLoggedUserID(Request $request)
     {
         $user = $request->user();
@@ -139,31 +146,28 @@ public function login(Request $request)
         return response()->json(['user_id' => $user->user_id]);
     }
 
+    // Fetch all users
+    public function users(Request $request)
+    {
+        // Eager load the 'role' relationship and return the category instead of role_id
+        $users = User::with('role') // Load the related Role model
+                     ->orderBy('user_id', 'desc')
+                     ->get();
 
+        // Modify the response to include the role category
+        $users = $users->map(function ($user) {
+            return [
+                'user_id' => $user->user_id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'status' => $user->status,
+                'location' => $user->location, // Include location in user list response
+                'role' => $user->role->category, // Return the 'category' from the Role model
+            ];
+        });
 
-  public function users(Request $request)
-{
-    // Eager load the 'role' relationship and return the category instead of role_id
-    $users = User::with('role') // Load the related Role model
-                 ->orderBy('user_id', 'desc')
-                 ->get();
-
-    // Modify the response to include the role category
-    $users = $users->map(function ($user) {
-        return [
-            'user_id' => $user->user_id,
-            'name' => $user->name,
-            'email' => $user->email,
-            'status' => $user->status,
-            'role' => $user->role->category, // Return the 'category' from the Role model
-        ];
-    });
-
-    return response()->json(['users' => $users]);
-}
-
-
-
+        return response()->json(['users' => $users]);
+    }
 
     // Update user
     public function updateUser(Request $request, $user_id)
@@ -178,6 +182,7 @@ public function login(Request $request)
             'name' => 'required|string|max:255',
             'role_id' => 'required|integer',
             'status' => 'required|string|max:255',
+            'location' => 'required|string|max:255', // Location validation added
             'email' => 'required|string|email|max:255',
             'password' => 'nullable|string|min:8',
         ]);
@@ -207,6 +212,7 @@ public function login(Request $request)
         return response()->json(['message' => 'User deleted successfully'], 200);
     }
 
+    // Log user activity
     public function logUserActivity(Request $request)
     {
         try {
@@ -227,6 +233,4 @@ public function login(Request $request)
             return response()->json(['message' => 'Failed to log activity'], 500);
         }
     }
-
-
 }

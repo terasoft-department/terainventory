@@ -17,6 +17,7 @@ class User extends Authenticatable
         'name',
         'email',
         'role_id',
+         'location',
         'status',   // Adding 'status' to fillable attributes
         'password',
     ];
